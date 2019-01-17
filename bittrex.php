@@ -1,10 +1,4 @@
 <?php
-require_once("settings.php");
-require_once("db.php");
-
-$public_key='';
-$private_key='';
-
 $orders_url="https://bittrex.com/api/v1.1/market/getopenorders";
 $ticker_url="https://bittrex.com/api/v1.1/public/getticker";
 $open_orders_url="https://bittrex.com/api/v1.1/market/getopenorders";
@@ -28,9 +22,6 @@ function bittrex_query($url,$query) {
         curl_setopt($ch, CURLOPT_HTTPHEADER, array('apisign:'.$sign));
         $result=curl_exec($ch);
         return $result;
-}
-
-function bittrex_create_order($market,$type,$order) {
 }
 
 function bittrex_get_order($market) {
@@ -77,81 +68,22 @@ function bittrex_get_balance($currency) {
         return $json;
 }
 
-db_connect();
+function bittrex_buylimit($market,$quantity,$rate) {
+        global $public_key;
+        global $buylimit_url;
+        $query="apikey=$public_key&market=$market&quantity=$quantity&rate=$rate";
+        $result=bittrex_query($buylimit_url,$query);
+        $json=json_decode($result);
+        return $json;
+}
 
-$satoshi_per_btc=100000000;
-$markets_data=db_query_to_array("SELECT `uid`,`market`,`currency`,`bid`,`ask`,`lower_limit`,`upper_limit`,`step`,`step_count`,`timestamp` FROM `markets` WHERE `is_enabled`=1");
-
-$currency="BTC";
-var_dump(bittrex_get_balance($currency));
-
-foreach($markets_data as $row) {
-        $uid=$row['uid'];
-        $market=$row['market'];
-        $bid=$row['bid'];
-        $ask=$row['ask'];
-        $lower_limit=$row['lower_limit'];
-        $upper_limit=$row['upper_limit'];
-        $step=$row['step'];
-        $step_count=$row['step_count'];
-
-        // Get open orders (bittrex)
-        echo "Get open orders for market $market...\n";
-        $open_orders=bittrex_get_open_orders($market);
-
-        // Get open orders (base)
-        $order_not_completed_base=db_query_to_array("SELECT `uid`,`order_guid`,`comment` FROM `orders` WHERE `is_completed`=0 AND `market`='$market'");
-        $orders_changed=FALSE;
-        foreach($order_not_completed_base as $order_row) {
-                $order_guid=$order_row['order_guid'];
-                $order_found=FALSE;
-                foreach($open_orders->result as $open_row) {
-                        $guid=$open_row->OrderUuid;
-                        if($guid==$order_guid) {
-                                $order_found=FALSE;
-                                break;
-                        }
-                }
-                if(!$order_found) {
-                        $orders_changed=TRUE;
-                }
-        }
-
-        // If orders changed, replace orders with new ones
-        if($orders_changed) {
-                echo "Orders changed, cancelling old...\n";
-                // Close all orders
-                foreach($open_orders->result as $open_row) {
-                        $uuid=$open_row->OrderUuid;
-                        echo "Closing order: $uuid\n";
-                        bittrex_cancel_order($uuid);
-                        db_query("DELETE FROM `orders` WHERE `order_guid`='$uuid'");
-                }
-
-                // Check if limit exceeded
-                echo "Get actual tickers...\n";
-                $ticker_data=bittrex_get_ticker($market);
-                $last_bid=$ticker_data->result->Bid;
-                $last_ask=$ticker_data->result->Ask;
-                if($last_bid < $lower_limit || $last_ask > $upper_limit) {
-                        db_query("UPDATE `markets` SET `is_enabled`=0 WHERE `uid`='$uid'");
-                        continue;
-                }
-
-                // Create new orders
-                echo "Creating new orders...\n";
-                $last_ask_satoshi=$last_ask*$satoshi_per_btc;
-                $last_bid_satoshi=$last_bid*$satoshi_per_btc;
-                echo "Current ask: $last_ask_satoshi\n";
-                for($i=0;$i!=$step_count;$i++) {
-                        $next_ask=floor($last_ask_satoshi*(1+($i+1)*$step));
-                        $next_ask=max($next_ask,$last_ask_satoshi+$i+1);
-                        echo "$i step $next_ask\n";
-                }
-
-        } else {
-                echo "Orders is not changed\n";
-        }
+function bittrex_selllimit($market,$quantity,$rate) {
+        global $public_key;
+        global $selllimit_url;
+        $query="apikey=$public_key&market=$market&quantity=$quantity&rate=$rate";
+        $result=bittrex_query($selllimit_url,$query);
+        $json=json_decode($result);
+        return $json;
 }
 
 ?>
